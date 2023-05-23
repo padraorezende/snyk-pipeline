@@ -1,0 +1,62 @@
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  snyk-security-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: Install Snyk CLI and snyk-to-html
+        run: |
+          npm install -g snyk
+          npm install -g snyk-to-html
+
+      - name: Authenticate Snyk
+        run: snyk auth ${{ secrets.SNYK_AUTH_TOKEN }}
+
+      - name: Run Snyk Security Check and Generate Json Report
+        run: snyk test --json | snyk-to-html -o results.html
+
+      - name: html to pdf
+        uses: fifsky/html-to-pdf-action@master
+        with:
+          htmlFile: results.html
+          outputFile: results.pdf
+          pdfOptions: '{"format": "A4", "margin": {"top": "10mm", "left": "10mm", "right": "10mm", "bottom": "10mm"}}'
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "${{ secrets.GIT_USER_NAME }}"
+          git config --global user.email "${{ secrets.GIT_USER_EMAIL }}"
+
+      - name: Commit and Push Changes
+        run: |
+          git add results.pdf
+          git commit -m "Add Snyk security report"
+          git push -u origin HEAD:master
+
+      - name: Create Issue
+        run: |
+          ISSUE_TITLE="Technical Debt Infrastructure - Snyk Security Report"
+          API_URL="${{ secrets.API_URL }}"
+
+          DOWNLOAD_URL="${{ secrets.DOWNLOAD_URL }}"
+
+          # Create the issue body with the download link
+          ISSUE_BODY="Package vulnerability refers to security flaws found in libraries, frameworks, and other software components used in a project. Please find the attached PDF report. You can download it [here]($DOWNLOAD_URL)."
+
+          # Send the API request to create the issue
+          curl -X POST -H "Authorization: Bearer ${{ secrets.TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"title\":\"$ISSUE_TITLE\",\"body\":\"$ISSUE_BODY\", \"labels\":[\"tech-debt\"]}" \
+            $API_URL
